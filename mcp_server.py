@@ -14,6 +14,8 @@ from core import (
     run_script,
     solve_qubo,
     solve_ising,
+    compile_and_solve,
+    compile_problem,
     container_status,
 )
 
@@ -121,6 +123,86 @@ def kaiwu_container_status() -> str:
     Returns container running state, ports, and health info.
     """
     result = container_status()
+    return json.dumps(result, ensure_ascii=False)
+
+
+# ═══════════════════════════════════════════════════════════════
+# qubify integration — compile problem descriptions to QUBO
+# ═══════════════════════════════════════════════════════════════
+
+
+@mcp.tool()
+def kaiwu_solve_preset(
+    preset: str,
+    data_json: str,
+    use_cim: bool = False,
+    task_name: str = "kaiwu-task",
+) -> str:
+    """Compile a problem via qubify preset and solve with Kaiwu SDK.
+
+    One-call pipeline: problem data → qubify compiler → QUBO matrix → solution.
+
+    Args:
+        preset: Problem type — 'tsp', 'maxcut', or 'knapsack'
+        data_json: JSON data for the preset.
+                   tsp: distance matrix [[0,10,15],[10,0,35]...]
+                   maxcut: adjacency matrix [[0,1,0],[1,0,1]...]
+                   knapsack: {"values":[60,100,120],"weights":[10,20,30],"capacity":50}
+        use_cim: If True, submit to CIM quantum computer
+        task_name: Task name for CIM submission
+    """
+    result = compile_and_solve(
+        preset=preset, data=data_json,
+        use_cim=use_cim, task_name=task_name,
+    )
+    # var_map isn't JSON-serializable, strip it from response
+    result.pop("var_map", None)
+    return json.dumps(result, ensure_ascii=False)
+
+
+@mcp.tool()
+def kaiwu_solve_dsl(
+    dsl_json: str,
+    use_cim: bool = False,
+    task_name: str = "kaiwu-task",
+) -> str:
+    """Compile a qubify DSL problem description and solve with Kaiwu SDK.
+
+    Args:
+        dsl_json: JSON string of qubify DSL: {"variables":..., "objective":..., "constraints":...}
+        use_cim: If True, submit to CIM quantum computer
+        task_name: Task name for CIM submission
+    """
+    result = compile_and_solve(
+        dsl=dsl_json,
+        use_cim=use_cim, task_name=task_name,
+    )
+    result.pop("var_map", None)
+    return json.dumps(result, ensure_ascii=False)
+
+
+@mcp.tool()
+def kaiwu_compile_problem(
+    preset: str = "",
+    data_json: str = "",
+    dsl_json: str = "",
+) -> str:
+    """Compile a problem description to QUBO matrix (no solving).
+
+    Use this to inspect the QUBO matrix before solving, or to feed it
+    to a different solver.
+
+    Args:
+        preset: Problem type — 'tsp', 'maxcut', or 'knapsack' (use with data_json)
+        data_json: JSON data for the preset
+        dsl_json: qubify DSL problem description (alternative to preset+data)
+    """
+    result = compile_problem(
+        preset=preset or None,
+        data=data_json or None,
+        dsl=dsl_json or None,
+    )
+    result.pop("var_map", None)
     return json.dumps(result, ensure_ascii=False)
 
 

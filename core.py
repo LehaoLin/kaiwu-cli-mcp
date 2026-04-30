@@ -232,3 +232,123 @@ def container_status() -> dict:
         return {"success": True, "message": "Container status retrieved", "output": result.stdout}
     except subprocess.CalledProcessError as e:
         return {"success": False, "message": f"Status check failed: {e.stderr}", "output": e.stderr}
+
+
+# ═══════════════════════════════════════════════════════════════════
+# qubify integration — problem → compile → solve in one shot
+# ═══════════════════════════════════════════════════════════════════
+
+
+def compile_and_solve(
+    preset: str = None,
+    data=None,
+    dsl: dict = None,
+    use_cim: bool = False,
+    task_name: str = "kaiwu-task",
+) -> dict:
+    """Compile a problem description to QUBO, then solve with Kaiwu SDK.
+
+    This is the one-call pipeline: problem → qubify → QUBO matrix → kw.solve()
+
+    Args:
+        preset: One of 'tsp', 'maxcut', 'knapsack'. Uses qubify presets.
+        data: JSON-ready data for the preset (distances, adjacency, etc.)
+        dsl: A qubify DSL problem dict (alternative to preset+data).
+        use_cim: If True, use CIM quantum optimizer.
+        task_name: Task name for CIM submission.
+
+    Returns:
+        dict with solution result.
+    """
+    import json
+    import numpy as np
+
+    try:
+        from converters import tsp_to_qubo, maxcut_to_qubo, knapsack_to_qubo, dsl_to_qubo
+    except ImportError:
+        return {
+            "success": False,
+            "message": "qubify is not installed. Run: pip install qubify",
+        }
+
+    # ── Step 1: Compile problem → QUBO matrix ─────────────────
+    var_map = None
+    qubo = None
+
+    if dsl:
+        problem = json.loads(dsl) if isinstance(dsl, str) else dsl
+        qubo, var_map = dsl_to_qubo(problem)
+    elif preset == "tsp":
+        qubo, var_map = tsp_to_qubo(data)
+    elif preset == "maxcut":
+        qubo, var_map = maxcut_to_qubo(data)
+    elif preset == "knapsack":
+        qubo, var_map = knapsack_to_qubo(data)
+    else:
+        return {
+            "success": False,
+            "message": "Provide either preset ('tsp'/'maxcut'/'knapsack') + data, or a dsl dict.",
+        }
+
+    # ── Step 2: Feed matrix to Kaiwu SDK solver ────────────────
+    matrix_json = json.dumps(qubo.tolist())
+    result = solve_qubo(matrix_json, use_cim=use_cim, task_name=task_name)
+
+    # Attach variable map for decoding
+    if result.get("success") and var_map:
+        result["var_map"] = var_map
+        result["n_vars"] = qubo.shape[0]
+
+    return result
+
+
+def compile_problem(
+    preset: str = None,
+    data=None,
+    dsl: dict = None,
+) -> dict:
+    """Compile a problem description to QUBO matrix ONLY (no solving).
+
+    Args:
+        preset: One of 'tsp', 'maxcut', 'knapsack'.
+        data: JSON-ready data for the preset.
+        dsl: A qubify DSL problem dict.
+
+    Returns:
+        dict with 'qubo_matrix' (JSON string) and 'var_map'.
+    """
+    import json
+    import numpy as np
+
+    try:
+        from converters import tsp_to_qubo, maxcut_to_qubo, knapsack_to_qubo, dsl_to_qubo
+    except ImportError:
+        return {
+            "success": False,
+            "message": "qubify is not installed. Run: pip install qubify",
+        }
+
+    qubo = None
+    var_map = None
+
+    if dsl:
+        problem = json.loads(dsl) if isinstance(dsl, str) else dsl
+        qubo, var_map = dsl_to_qubo(problem)
+    elif preset == "tsp":
+        qubo, var_map = tsp_to_qubo(data)
+    elif preset == "maxcut":
+        qubo, var_map = maxcut_to_qubo(data)
+    elif preset == "knapsack":
+        qubo, var_map = knapsack_to_qubo(data)
+    else:
+        return {
+            "success": False,
+            "message": "Provide either preset ('tsp'/'maxcut'/'knapsack') + data, or a dsl dict.",
+        }
+
+    return {
+        "success": True,
+        "message": f"Problem compiled ({qubo.shape[0]} variables)",
+        "qubo_matrix": json.dumps(qubo.tolist()),
+        "var_map": var_map,
+    }

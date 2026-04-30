@@ -146,9 +146,14 @@ python cli.py run ~/Desktop/experiment.py
 | `python cli.py build` | 构建 Kaiwu SDK Docker 镜像 |
 | `python cli.py license init` | 生成 SDK License |
 | `python cli.py license check` | 检查 License 状态 |
-| `python cli.py run <script>` | 运行 Python 脚本（支持宿主机任意路径，自动挂载到 Docker） |
-| `python cli.py solve --qubo '<json>'` | 直接求解 QUBO 问题 |
-| `python cli.py solve --ising '<json>'` | 直接求解 Ising 问题 |
+| `python cli.py run <script>` | 运行 Python 脚本（支持宿主机任意路径） |
+| `python cli.py solve --qubo '<json>'` | 直接求解 QUBO 矩阵 |
+| `python cli.py solve --ising '<json>'` | 直接求解 Ising 矩阵 |
+| `python cli.py solve --tsp '<distances>'` | **自动编译 TSP → QUBO → 求解** (via qubify) |
+| `python cli.py solve --maxcut '<adjacency>'` | **自动编译 Max-Cut → QUBO → 求解** (via qubify) |
+| `python cli.py solve --knapsack '<json>'` | **自动编译 Knapsack → QUBO → 求解** (via qubify) |
+| `python cli.py solve --dsl '<json>'` | **自动编译自定义问题 → QUBO → 求解** (via qubify) |
+| `python cli.py compile --preset tsp --data '<json>'` | 编译问题 → QUBO 矩阵（不求解） |
 | `python cli.py status` | 查看容器状态 |
 
 ### 示例
@@ -169,7 +174,51 @@ python cli.py solve --qubo '[[0.89, 0.22, 0.198], [0.22, 0.23, 0.197], [0.198, 0
 
 # 使用 CIM 真机求解
 python cli.py solve --ising '[[1, -1], [-1, 1]]' --cim --task-name "my-experiment"
+
+# 自动编译并求解 (via qubify — 无需手推 QUBO 矩阵)
+python cli.py solve --tsp '[[0,10,15,20],[10,0,35,25],[15,35,0,30],[20,25,30,0]]'
+python cli.py solve --maxcut '[[0,1,0],[1,0,1],[0,1,0]]'
+python cli.py solve --knapsack '{"values":[60,100,120],"weights":[10,20,30],"capacity":50}'
+
+# 编译自定义问题（qubify DSL）并求解
+python cli.py solve --dsl '{"variables":{"x":("binary",(3,))},"objective":[{"coeff":1,"vars":[0,1]}],"constraints":[{"type":"one_hot","vars":[0,1,2]}]}'
+
+# 只编译不求解（输出 QUBO 矩阵 JSON）
+python cli.py compile --preset maxcut --data '[[0,1,0],[1,0,1],[0,1,0]]'
 ```
+
+### 自动编译求解 (via qubify)
+
+[kaiwu-cli-mcp](https://github.com/LehaoLin/kaiwu-cli-mcp) 集成了 **[qubify](https://github.com/LehaoLin/qubify)** — 一个约束→QUBO 编译器。
+
+**这意味着你不再需要手推 QUBO 矩阵。** 只需要给出业务数据：
+
+```
+你的业务数据 → qubify 编译器 → QUBO 矩阵 → Kaiwu SDK → 解
+```
+
+支持的预设问题类型：
+
+| Preset | 输入 | 示例 |
+|--------|------|------|
+| `tsp` | 距离矩阵 `[[d00,d01,...], ...]` | 旅行商问题 |
+| `maxcut` | 邻接矩阵 `[[w00,w01,...], ...]` | 最大割问题 |
+| `knapsack` | `{"values":[], "weights":[], "capacity":N}` | 0/1 背包问题 |
+
+也可以使用 qubify DSL 描述任意自定义约束问题：
+
+```json
+{
+  "variables": {"x": ("binary", (5,))},
+  "objective": [{"coeff": -1.0, "vars": [0]}],
+  "constraints": [
+    {"type": "one_hot", "vars": [0, 1, 2]},
+    {"type": "cardinality", "vars": [3, 4], "rhs": 1}
+  ]
+}
+```
+
+编译和求解在**宿主机**完成（qubify 不需要装在 Docker 里），只把最终矩阵传入 Docker 中调用 Kaiwu SDK。
 
 ### 编写用户脚本
 
@@ -299,8 +348,11 @@ OpenCode TUI 中使用 `/mcps` 管理 MCP 服务器。
 | `kaiwu_init_license` | 生成 SDK License（可指定 user_id/sdk_code） |
 | `kaiwu_check_license` | 检查 License 状态 |
 | `kaiwu_run_script` | 运行 Python 脚本（支持宿主机任意路径，自动挂载到 Docker） |
-| `kaiwu_solve_qubo` | 求解 QUBO 问题（支持 CIM 真机） |
-| `kaiwu_solve_ising` | 求解 Ising 问题（支持 CIM 真机） |
+| `kaiwu_solve_qubo` | 求解原始 QUBO 矩阵 |
+| `kaiwu_solve_ising` | 求解原始 Ising 矩阵 |
+| `kaiwu_solve_preset` | **自动编译+求解 (tsp/maxcut/knapsack)** via qubify |
+| `kaiwu_solve_dsl` | **自动编译+求解 (自定义 DSL)** via qubify |
+| `kaiwu_compile_problem` | 编译问题 → QUBO 矩阵（不求解）via qubify |
 | `kaiwu_container_status` | 查看 Docker 容器状态 |
 
 ---
