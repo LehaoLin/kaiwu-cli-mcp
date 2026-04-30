@@ -1,0 +1,21 @@
+version: "3.8"
+
+services:
+  kaiwu:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: ${KAIWU_IMAGE_NAME:-kaiwu-sdk:latest}
+    container_name: ${KAIWU_CONTAINER_NAME:-kaiwu-sdk}
+    working_dir: /workspace
+    volumes:
+      # 映射用户脚本目录（用户在宿主机编辑，Docker 中运行）
+      - ./user_script:/user_script:rw
+      # 映射用户配置文件（只读）
+      - ./user_config.yaml:/workspace/user_config.yaml:ro
+    environment:
+      - PYTHONUNBUFFERED=1
+      - PYTHONPATH=/workspace:/user_script
+    stdin_open: true
+    tty: true
+    command: python3

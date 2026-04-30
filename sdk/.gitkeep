@@ -1,0 +1,5 @@
+# 请将 Kaiwu SDK Linux 版本的 .whl 文件放在此目录下
+# 1. 访问 https://platform.qboson.com/ 登录
+# 2. 下载 Linux 版本的 SDK（如 kaiwu-1.3.1-cp310-cp310-linux_x86_64.whl）
+# 3. 将 .whl 文件放入此目录
+# 4. 运行 kaiwu-cli build 构建 Docker 镜像

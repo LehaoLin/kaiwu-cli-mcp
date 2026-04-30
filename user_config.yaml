@@ -1,0 +1,10 @@
+# Kaiwu SDK 用户配置文件
+# 请在此填写您的 user_id 和 sdk_code
+# 登录 https://platform.qboson.com/ 获取
+
+user_id: ""        # 你的用户ID
+sdk_code: ""       # 你的SDK授权码
+
+# Docker 配置（可选修改）
+container_name: "kaiwu-sdk"     # 容器名称
+image_name: "kaiwu-sdk:latest"  # 镜像名称
