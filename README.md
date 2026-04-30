@@ -121,13 +121,17 @@ python cli.py license init --user-id "your_id" --sdk-code "your_code"
 python cli.py license check
 ```
 
-### 6. 运行示例脚本
+### 6. 运行脚本
 
-在 `user_script/` 目录下编写你的 Python 脚本（使用 Kaiwu SDK），然后：
+在**任意位置**编写你的 Python 脚本（使用 Kaiwu SDK），CLI 会自动将其挂载到 Docker 容器中执行：
 
 ```bash
-# 运行示例 TSP 脚本
+# 运行 user_script/ 下的脚本
 python cli.py run example_tsp.py
+
+# 运行宿主机任意位置的脚本
+python cli.py run /home/user/projects/my_tsp_solver.py
+python cli.py run ~/Desktop/experiment.py
 ```
 
 ---
@@ -141,7 +145,7 @@ python cli.py run example_tsp.py
 | `python cli.py build` | 构建 Kaiwu SDK Docker 镜像 |
 | `python cli.py license init` | 生成 SDK License |
 | `python cli.py license check` | 检查 License 状态 |
-| `python cli.py run <script>` | 运行 user_script/ 下的 Python 脚本 |
+| `python cli.py run <script>` | 运行 Python 脚本（支持宿主机任意路径，自动挂载到 Docker） |
 | `python cli.py solve --qubo '<json>'` | 直接求解 QUBO 问题 |
 | `python cli.py solve --ising '<json>'` | 直接求解 Ising 问题 |
 | `python cli.py status` | 查看容器状态 |
@@ -155,8 +159,9 @@ python cli.py build
 # 生成 license（使用 user_config.yaml）
 python cli.py license init
 
-# 运行自定义脚本
+# 运行自定义脚本（任意路径）
 python cli.py run my_optimization.py
+python cli.py run ~/projects/quantum/experiment.py
 
 # 直接求解 QUBO
 python cli.py solve --qubo '[[0.89, 0.22, 0.198], [0.22, 0.23, 0.197], [0.198, 0.197, 0.198]]'
@@ -167,7 +172,10 @@ python cli.py solve --ising '[[1, -1], [-1, 1]]' --cim --task-name "my-experimen
 
 ### 编写用户脚本
 
-在 `user_script/` 目录下创建 `.py` 文件，直接 `import kaiwu as kw` 使用 SDK。
+在**任意位置**创建 `.py` 文件，直接 `import kaiwu as kw` 使用 SDK。
+
+- **推荐做法**：脚本放在 `user_script/` 目录下（该目录已映射到容器 `/user_script/`，执行最快）
+- **灵活做法**：脚本放在宿主机任意路径，CLI 调用时自动将该脚本所在目录以只读方式挂载到容器的 `/mnt/script/`，然后用容器中的 Kaiwu SDK 环境执行
 
 参考 [Kaiwu SDK 官方文档 - TSP 教程](https://kaiwu-sdk-docs.qboson.com/zh/latest/index.html) 学习 QUBO/Ising 建模方法。
 

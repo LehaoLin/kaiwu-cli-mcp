@@ -99,44 +99,57 @@ def check_license() -> dict:
 def run_script(script_path: str) -> dict:
     """Run a user Python script inside the Kaiwu SDK Docker container.
 
-    The script should be located under user_script/ (mapped to /user_script in container).
+    Supports two modes:
+    1. Scripts under user_script/ — directly accessible (already mounted)
+    2. Scripts ANYWHERE on the host — auto-mounted via temporary volume
 
     Args:
-        script_path: Relative path to the script under user_script/ (e.g., 'tsp_solver.py')
-                     Or absolute path to any script on the host.
+        script_path: Path to the Python script.
+                     Relative paths resolve under user_script/ first.
+                     Absolute paths work from anywhere on the host.
 
     Returns:
         dict with execution result.
     """
-    script = Path(script_path)
+    script = Path(script_path).resolve()
 
-    # If relative, assume it's under user_script/
-    if not script.is_absolute():
-        script = USER_SCRIPT_DIR / script_path
+    # If relative, first check under user_script/
+    if not Path(script_path).is_absolute():
+        candidate = (USER_SCRIPT_DIR / script_path).resolve()
+        if candidate.exists():
+            script = candidate
 
     if not script.exists():
         return {"success": False, "message": f"Script not found: {script}"}
 
-    # Convert to path inside container (/user_script/...)
+    # Case 1: Script is under user_script/ — already mounted at /user_script
     try:
-        rel_path = script.relative_to(USER_SCRIPT_DIR)
-        container_path = f"/user_script/{rel_path}"
+        rel = script.relative_to(USER_SCRIPT_DIR)
+        container_path = f"/user_script/{rel}"
+        result = _run_docker_compose([
+            "run", "--rm", "kaiwu",
+            "python3", str(container_path),
+        ])
+        return {"success": True, "message": f"Script executed: {script}", "output": result.stdout}
     except ValueError:
-        # Script is outside user_script/, mount it directly
-        return {
-            "success": False,
-            "message": f"Script must be under {USER_SCRIPT_DIR}. "
-                       f"Please place your script in the user_script/ directory.",
-        }
+        pass  # Not under user_script/, use volume mount
+    except subprocess.CalledProcessError as e:
+        return {"success": False, "message": "Script execution failed", "output": e.stdout + "\n" + e.stderr}
+
+    # Case 2: Script is ANYWHERE on host — mount its parent dir as /mnt/script
+    host_dir = str(script.parent)
+    container_path = f"/mnt/script/{script.name}"
 
     try:
-        result = _run_in_container(
-            f"import subprocess, sys; "
-            f"sys.exit(subprocess.run([sys.executable, '{container_path}']).returncode)"
-        )
-        return {"success": True, "message": "Script executed successfully", "output": result.stdout}
+        result = _run_docker_compose([
+            "run", "--rm",
+            "-v", f"{host_dir}:/mnt/script:ro",
+            "kaiwu",
+            "python3", container_path,
+        ])
+        return {"success": True, "message": f"Script executed: {script}", "output": result.stdout}
     except subprocess.CalledProcessError as e:
-        return {"success": False, "message": f"Script execution failed", "output": e.stdout + "\n" + e.stderr}
+        return {"success": False, "message": "Script execution failed", "output": e.stdout + "\n" + e.stderr}
 
 
 def solve_qubo(qubo_matrix_json: str, use_cim: bool = False, task_name: str = "kaiwu-task") -> dict:

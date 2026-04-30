@@ -6,7 +6,7 @@ Usage:
   kaiwu-cli license init                 Generate license from user_config.yaml
   kaiwu-cli license init --user-id U --sdk-code C   Generate license with given credentials
   kaiwu-cli license check                Check license status
-  kaiwu-cli run <script.py>              Run a script in user_script/ inside Docker
+  kaiwu-cli run <script.py>              Run a Python script anywhere on the host inside Docker
   kaiwu-cli solve --qubo '<json>'        Solve a QUBO problem
   kaiwu-cli solve --ising '<json>'       Solve an Ising problem
   kaiwu-cli status                       Show container status
@@ -48,8 +48,8 @@ def main():
     license_check = license_sub.add_parser("check", help="Check license status")
 
     # run
-    parser_run = subparsers.add_parser("run", help="Run a Python script in Docker")
-    parser_run.add_argument("script", help="Path to script (relative to user_script/)")
+    parser_run = subparsers.add_parser("run", help="Run a Python script in Docker (from anywhere on host)")
+    parser_run.add_argument("script", help="Path to Python script (absolute or relative to user_script/)")
 
     # solve
     parser_solve = subparsers.add_parser("solve", help="Solve a QUBO or Ising problem")
