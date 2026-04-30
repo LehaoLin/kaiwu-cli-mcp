@@ -61,11 +61,14 @@ def kaiwu_check_license() -> str:
 def kaiwu_run_script(script_path: str) -> str:
     """Run a Python script inside the Kaiwu SDK Docker container.
 
-    The script must be under the user_script/ directory,
-    which is mapped to /user_script inside the container.
+    Supports two modes:
+    1. Scripts under user_script/ — directly accessible (already mounted)
+    2. Scripts ANYWHERE on the host — auto-mounted via temporary volume
 
     Args:
-        script_path: Relative path to script under user_script/ (e.g., 'tsp_solver.py')
+        script_path: Path to the Python script. Relative paths resolve
+                     under user_script/ first. Absolute paths work from
+                     anywhere on the host.
     """
     result = run_script(script_path)
     return json.dumps(result, ensure_ascii=False)

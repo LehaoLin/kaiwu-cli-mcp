@@ -16,7 +16,7 @@
   - [3. 配置用户信息](#3-配置用户信息)
   - [4. 构建 Docker 镜像](#4-构建-docker-镜像)
   - [5. 生成 License](#5-生成-license)
-  - [6. 运行示例脚本](#6-运行示例脚本)
+  - [6. 运行脚本](#6-运行脚本)
 - [CLI 使用指南](#cli-使用指南)
 - [MCP Server 使用指南](#mcp-server-使用指南)
 - [项目结构](#项目结构)
@@ -43,8 +43,8 @@
 │               │ docker compose               │
 │               │                              │
 │  ┌────────────▼──────────────┐               │
-│  │    user_script/           │  用户脚本目录  │
-│  │    (宿主机编辑)           │  (映射)       │
+│  │    user_script/            │  脚本目录(常驻)│
+│  │    ~/任意路径/xxx.py       │  自动挂载      │
 │  └───────────────────────────┘               │
 │               │                              │
 └───────────────┼──────────────────────────────┘
@@ -55,6 +55,7 @@
 │  • Python 3.10                               │
 │  • Kaiwu SDK (已安装)                         │
 │  • /user_script/ (映射自宿主机)               │
+│  • /mnt/script/  (外部脚本自动挂载)            │
 │                                              │
 │  用户脚本在此环境中运行，调用 Kaiwu SDK        │
 │  访问玻色量子 CIM 相干光量子计算机             │
@@ -297,7 +298,7 @@ OpenCode TUI 中使用 `/mcps` 管理 MCP 服务器。
 | `kaiwu_build_image` | 构建 Kaiwu SDK Docker 镜像 |
 | `kaiwu_init_license` | 生成 SDK License（可指定 user_id/sdk_code） |
 | `kaiwu_check_license` | 检查 License 状态 |
-| `kaiwu_run_script` | 运行 user_script/ 下的 Python 脚本 |
+| `kaiwu_run_script` | 运行 Python 脚本（支持宿主机任意路径，自动挂载到 Docker） |
 | `kaiwu_solve_qubo` | 求解 QUBO 问题（支持 CIM 真机） |
 | `kaiwu_solve_ising` | 求解 Ising 问题（支持 CIM 真机） |
 | `kaiwu_container_status` | 查看 Docker 容器状态 |

@@ -5,7 +5,6 @@ All Docker orchestration happens here.
 """
 
 import subprocess
-import sys
 from pathlib import Path
 from config import load_config, PROJECT_ROOT, USER_SCRIPT_DIR, DOCKER_COMPOSE_FILE
 
@@ -19,7 +18,6 @@ def _run_docker_compose(args: list[str], check: bool = True) -> subprocess.Compl
 
 def _run_in_container(python_code: str) -> subprocess.CompletedProcess:
     """Execute Python code inside the Kaiwu SDK container."""
-    config = load_config()
     return _run_docker_compose([
         "run", "--rm", "kaiwu",
         "python3", "-c", python_code,
