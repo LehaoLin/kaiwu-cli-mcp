@@ -192,17 +192,24 @@ print(f"Solution: {solution}")
 
 ## MCP Server 使用指南
 
-MCP (Model Context Protocol) 模式允许 AI Agent（如 Claude、Hermes）直接调用 Kaiwu SDK。
+MCP (Model Context Protocol) 模式允许 AI Agent 直接调用 Kaiwu SDK。
+支持以下 AI 编码工具的 MCP 配置：**Hermes Agent**、**Claude Code**、**OpenAI Codex**、**OpenCode**。
 
 ### 启动 MCP Server
 
 ```bash
-python mcp_server.py
+cd /root/kaiwu-cli-mcp
+pip install -r requirements.txt   # 安装 fastmcp 依赖
+python mcp_server.py              # 启动 MCP Server (stdio 模式)
 ```
 
-### 在 Hermes Agent 中配置
+---
 
-在 `~/.hermes/config.yaml` 中添加：
+### 各工具 MCP 配置方法
+
+#### Hermes Agent
+
+编辑 `~/.hermes/config.yaml`：
 
 ```yaml
 mcpServers:
@@ -211,17 +218,81 @@ mcpServers:
     args: ["/root/kaiwu-cli-mcp/mcp_server.py"]
 ```
 
+#### Claude Code
+
+**方法一：CLI 命令**（推荐）
+
+```bash
+claude mcp add --transport stdio kaiwu-sdk-tools -- python /root/kaiwu-cli-mcp/mcp_server.py
+```
+
+**方法二：`.mcp.json` 文件**（项目级，可 git-track）
+
+在项目根目录创建 `.mcp.json`：
+
+```json
+{
+  "mcpServers": {
+    "kaiwu-sdk-tools": {
+      "command": "python",
+      "args": ["/root/kaiwu-cli-mcp/mcp_server.py"]
+    }
+  }
+}
+```
+
+- **Local 作用域**（仅当前项目，gitignored）：`claude mcp add --scope local ...`
+- **Project 作用域**（团队共享）：`claude mcp add --scope project ...`
+- **User 作用域**（全局所有项目，`~/.claude.json`）：`claude mcp add --scope user ...`
+
+在 Claude Code TUI 中使用 `/mcp` 查看和管理所有 MCP 服务器。
+
+#### OpenAI Codex
+
+编辑 `~/.codex/config.toml`：
+
+```toml
+[mcp_servers.kaiwu-sdk-tools]
+command = "python"
+args = ["/root/kaiwu-cli-mcp/mcp_server.py"]
+```
+
+> 详细配置参数参考：[Codex 配置文档](https://github.com/openai/codex/blob/main/docs/config.md)
+
+#### OpenCode
+
+在项目根目录创建 `opencode.json`（或 `opencode.jsonc` 支持注释）：
+
+```json
+{
+  "mcp": {
+    "kaiwu-sdk-tools": {
+      "type": "local",
+      "command": ["python", "/root/kaiwu-cli-mcp/mcp_server.py"]
+    }
+  }
+}
+```
+
+> 详细配置参数参考：[OpenCode 配置文档](https://opencode.ai/docs/)
+
+OpenCode TUI 中使用 `/mcps` 管理 MCP 服务器。
+
+---
+
 ### 可用 MCP 工具
+
+配置完成后，AI Agent 可自动发现以下工具：
 
 | 工具名 | 说明 |
 |--------|------|
-| `kaiwu_build_image` | 构建 Docker 镜像 |
-| `kaiwu_init_license` | 生成 SDK License |
+| `kaiwu_build_image` | 构建 Kaiwu SDK Docker 镜像 |
+| `kaiwu_init_license` | 生成 SDK License（可指定 user_id/sdk_code） |
 | `kaiwu_check_license` | 检查 License 状态 |
-| `kaiwu_run_script` | 运行用户脚本 |
-| `kaiwu_solve_qubo` | 求解 QUBO 问题 |
-| `kaiwu_solve_ising` | 求解 Ising 问题 |
-| `kaiwu_container_status` | 查看容器状态 |
+| `kaiwu_run_script` | 运行 user_script/ 下的 Python 脚本 |
+| `kaiwu_solve_qubo` | 求解 QUBO 问题（支持 CIM 真机） |
+| `kaiwu_solve_ising` | 求解 Ising 问题（支持 CIM 真机） |
+| `kaiwu_container_status` | 查看 Docker 容器状态 |
 
 ---
 
