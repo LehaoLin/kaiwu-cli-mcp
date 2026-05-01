@@ -1,5 +1,6 @@
 # Kaiwu SDK 文件（太大，不入库）
 sdk/*.whl
+sdk/*.zip
 
 # Python
 __pycache__/
