@@ -53,7 +53,7 @@
 │           Docker 容器 (kaiwu-sdk)             │
 │                                              │
 │  • Python 3.10                               │
-│  • Kaiwu SDK (已安装)                         │
+│  • Kaiwu SDK v1.3.1 (已安装)                   │
 │  • /user_script/ (映射自宿主机)               │
 │  • /mnt/script/  (外部脚本自动挂载)            │
 │                                              │
@@ -69,7 +69,8 @@
 ## 前置要求
 
 - **Docker** & **Docker Compose** (v2+)
-- **Python 3.10+** (宿主机，仅用于 CLI/MCP 工具)
+- **Python 3.10** (宿主机，仅用于 CLI/MCP 工具。Kaiwu SDK 仅支持 3.10)
+- **Kaiwu SDK v1.3.1** (当前适配版本，`cp310` wheel)
 - 玻色量子平台账号：[https://platform.qboson.com/](https://platform.qboson.com/)
 
 ---
@@ -405,7 +406,7 @@ docker compose run --rm kaiwu bash
 
 ### Q: Python 版本要求？
 
-Kaiwu SDK 仅支持 **Python 3.10**（不区分小版本）。Docker 镜像已使用 `python:3.10-slim`。
+Kaiwu SDK v1.3.1 仅支持 **Python 3.10**（不区分小版本）。Docker 镜像已使用 `python:3.10-slim`。
 
 ---
 
