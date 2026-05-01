@@ -83,13 +83,19 @@
 
 ### 2. 下载 SDK
 
-在平台上下载 **Linux 版本的 Kaiwu SDK**（`.whl` 文件），命名如 `kaiwu-1.3.1-cp310-cp310-linux_x86_64.whl`。
+访问 **[SDK 下载页](https://platform.qboson.com/sdkDownload)**，下载 **Linux 版本**的 Kaiwu SDK（下载后为 `.zip` 文件，内含 `.whl`）。
 
-将下载的 `.whl` 文件放入项目的 `sdk/` 目录：
+将下载的 `.zip`（或解压后的 `.whl`）放入项目 `sdk/` 目录：
 
 ```bash
-cp ~/Downloads/kaiwu-*.whl ./sdk/
+# 方式一：直接放 zip（Docker 构建时自动解压）
+cp ~/Downloads/kaiwu-*.zip ./sdk/
+
+# 方式二：解压后放 whl
+unzip ~/Downloads/kaiwu-*.zip -d ./sdk/
 ```
+
+Docker 构建时会自动处理：`.zip` 自动解压 → 找到 `.whl` → `pip install`。
 
 ### 3. 配置用户信息
 
