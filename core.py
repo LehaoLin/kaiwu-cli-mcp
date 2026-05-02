@@ -4,9 +4,15 @@ No CLI args, no MCP decorators — pure Python functions.
 All Docker orchestration happens here.
 """
 
+import json
+import os
 import subprocess
+import tempfile
 from pathlib import Path
 from config import load_config, PROJECT_ROOT, USER_SCRIPT_DIR, DOCKER_COMPOSE_FILE
+
+# Temp script directory inside user_script/ (auto-mounted to container)
+_TMP_DIR = USER_SCRIPT_DIR / ".tmp"
 
 
 def _run_docker_compose(args: list[str], check: bool = True) -> subprocess.CompletedProcess:
@@ -17,19 +23,29 @@ def _run_docker_compose(args: list[str], check: bool = True) -> subprocess.Compl
 
 
 def _run_in_container(python_code: str) -> subprocess.CompletedProcess:
-    """Execute Python code inside the Kaiwu SDK container."""
-    return _run_docker_compose([
-        "run", "--rm", "kaiwu",
-        "python3", "-c", python_code,
-    ])
+    """Execute Python code inside the Kaiwu SDK container via a temp script file.
+
+    Uses file-based execution instead of `python3 -c '...'` to avoid
+    command injection via string interpolation.
+    """
+    _TMP_DIR.mkdir(parents=True, exist_ok=True)
+
+    fd, tmp_path = tempfile.mkstemp(suffix=".py", dir=_TMP_DIR)
+    try:
+        with os.fdopen(fd, "w") as f:
+            f.write(python_code)
+        container_path = f"/user_script/.tmp/{Path(tmp_path).name}"
+        return _run_docker_compose([
+            "run", "--rm", "kaiwu",
+            "python3", container_path,
+        ])
+    finally:
+        if os.path.exists(tmp_path):
+            os.unlink(tmp_path)
 
 
 def build_image() -> dict:
-    """Build the Kaiwu SDK Docker image.
-
-    Returns:
-        dict with success status and message.
-    """
+    """Build the Kaiwu SDK Docker image."""
     try:
         result = _run_docker_compose(["build", "--no-cache"])
         return {"success": True, "message": "Docker image built successfully", "output": result.stdout}
@@ -38,15 +54,7 @@ def build_image() -> dict:
 
 
 def init_license(user_id: str = None, sdk_code: str = None) -> dict:
-    """Generate Kaiwu SDK license inside the Docker container.
-
-    Args:
-        user_id: 用户ID (from config if not provided)
-        sdk_code: SDK授权码 (from config if not provided)
-
-    Returns:
-        dict with success status and message.
-    """
+    """Generate Kaiwu SDK license inside the Docker container."""
     config = load_config()
     uid = user_id or config.get("user_id", "")
     code = sdk_code or config.get("sdk_code", "")
@@ -57,38 +65,33 @@ def init_license(user_id: str = None, sdk_code: str = None) -> dict:
             "message": "user_id and sdk_code are required. Set them in user_config.yaml or pass as arguments.",
         }
 
-    license_code = (
-        f"import kaiwu as kw; "
-        f"kw.license.init('{uid}', '{code}'); "
-        f"print('License generated successfully.')"
-    )
-
+    script = f"""import json
+import kaiwu as kw
+kw.license.init({json.dumps(uid)}, {json.dumps(code)})
+print('License generated successfully.')
+"""
     try:
-        result = _run_in_container(license_code)
+        result = _run_in_container(script)
         return {"success": True, "message": "License generated successfully", "output": result.stdout}
     except subprocess.CalledProcessError as e:
         return {"success": False, "message": f"License generation failed: {e.stderr}", "output": e.stderr}
 
 
 def check_license() -> dict:
-    """Check if Kaiwu SDK license is valid.
-
-    Returns:
-        dict with license status.
-    """
+    """Check if Kaiwu SDK license is valid."""
+    script = """import kaiwu as kw
+try:
+    from kaiwu.license import _LICENSE_FILE
+    import os
+    if os.path.exists(_LICENSE_FILE):
+        print('License file exists.')
+    else:
+        print('License file not found.')
+except Exception as e:
+    print(f'Error checking license: {e}')
+"""
     try:
-        result = _run_in_container(
-            "import kaiwu as kw; "
-            "try:\n"
-            "    from kaiwu.license import _LICENSE_FILE\n"
-            "    import os\n"
-            "    if os.path.exists(_LICENSE_FILE):\n"
-            "        print('License file exists.')\n"
-            "    else:\n"
-            "        print('License file not found.')\n"
-            "except Exception as e:\n"
-            "    print(f'Error checking license: {e}')"
-        )
+        result = _run_in_container(script)
         return {"success": True, "message": "License check completed", "output": result.stdout}
     except subprocess.CalledProcessError as e:
         return {"success": False, "message": f"License check failed: {e.stderr}", "output": e.stderr}
@@ -100,14 +103,6 @@ def run_script(script_path: str) -> dict:
     Supports two modes:
     1. Scripts under user_script/ — directly accessible (already mounted)
     2. Scripts ANYWHERE on the host — auto-mounted via temporary volume
-
-    Args:
-        script_path: Path to the Python script.
-                     Relative paths resolve under user_script/ first.
-                     Absolute paths work from anywhere on the host.
-
-    Returns:
-        dict with execution result.
     """
     script = Path(script_path).resolve()
 
@@ -150,83 +145,106 @@ def run_script(script_path: str) -> dict:
         return {"success": False, "message": "Script execution failed", "output": e.stdout + "\n" + e.stderr}
 
 
-def solve_qubo(qubo_matrix_json: str, use_cim: bool = False, task_name: str = "kaiwu-task") -> dict:
+def solve_qubo(
+    qubo_matrix_json: str,
+    use_cim: bool = False,
+    task_name: str = "kaiwu-task",
+    sa_params: dict = None,
+    cim_params: dict = None,
+) -> dict:
     """Solve a QUBO problem using Kaiwu SDK inside Docker.
 
-    Args:
-        qubo_matrix_json: JSON-encoded 2D array representing the QUBO matrix
-        use_cim: If True, use CIM quantum optimizer (requires cloud access);
-                 if False, use SimulatedAnnealingOptimizer
-        task_name: Task name for CIM submission
-
-    Returns:
-        dict with solution result.
+    The matrix is converted to Ising via kw.conversion, precision-adjusted,
+    then passed to the optimizer.
     """
-    solver_code = (
-        f"import json, numpy as np, kaiwu as kw; "
-        f"matrix = np.array(json.loads('{qubo_matrix_json}')); "
-    )
-    if use_cim:
-        solver_code += (
-            f"opt = kw.cim.CIMOptimizer(task_name='{task_name}', wait=True); "
-        )
-    else:
-        solver_code += (
-            f"opt = kw.classical.SimulatedAnnealingOptimizer(); "
-        )
-    solver_code += (
-        f"sol = opt.solve(matrix); "
-        f"print(json.dumps({{'solution': sol.tolist() if hasattr(sol, 'tolist') else sol}}))"
-    )
+    sa_params = sa_params or {}
+    cim_params = cim_params or {}
 
+    optimizer_lines = _build_optimizer_code(use_cim, task_name, sa_params, cim_params)
+
+    script = f"""import json
+import numpy as np
+import kaiwu as kw
+
+matrix = np.array(json.loads({json.dumps(qubo_matrix_json)}))
+
+# QUBO -> Ising conversion
+ising_mat, bias = kw.conversion.qubo_matrix_to_ising_matrix(matrix)
+# Precision adjustment
+ising_mat = kw.ising.adjust_ising_matrix_precision(ising_mat)
+
+{optimizer_lines}
+
+sol = opt.solve(ising_mat)
+print(json.dumps({{"solution": sol.tolist() if hasattr(sol, 'tolist') else sol, "bias": float(bias)}}))
+"""
     try:
-        result = _run_in_container(solver_code)
+        result = _run_in_container(script)
         return {"success": True, "message": "QUBO solved", "output": result.stdout}
     except subprocess.CalledProcessError as e:
         return {"success": False, "message": f"QUBO solving failed: {e.stderr}", "output": e.stderr}
 
 
-def solve_ising(ising_matrix_json: str, use_cim: bool = False, task_name: str = "kaiwu-task") -> dict:
+def solve_ising(
+    ising_matrix_json: str,
+    use_cim: bool = False,
+    task_name: str = "kaiwu-task",
+    sa_params: dict = None,
+    cim_params: dict = None,
+) -> dict:
     """Solve an Ising problem using Kaiwu SDK inside Docker.
 
-    Args:
-        ising_matrix_json: JSON-encoded 2D array representing the Ising matrix
-        use_cim: If True, use CIM quantum optimizer (requires cloud access)
-        task_name: Task name for CIM submission
-
-    Returns:
-        dict with solution result.
+    The matrix is precision-adjusted, then passed to the optimizer.
     """
-    solver_code = (
-        f"import json, numpy as np, kaiwu as kw; "
-        f"matrix = np.array(json.loads('{ising_matrix_json}')); "
-    )
-    if use_cim:
-        solver_code += (
-            f"opt = kw.cim.CIMOptimizer(task_name='{task_name}', wait=True); "
-        )
-    else:
-        solver_code += (
-            f"opt = kw.classical.SimulatedAnnealingOptimizer(); "
-        )
-    solver_code += (
-        f"sol = opt.solve(matrix); "
-        f"print(json.dumps({{'solution': sol.tolist() if hasattr(sol, 'tolist') else sol}}))"
-    )
+    sa_params = sa_params or {}
+    cim_params = cim_params or {}
 
+    optimizer_lines = _build_optimizer_code(use_cim, task_name, sa_params, cim_params)
+
+    script = f"""import json
+import numpy as np
+import kaiwu as kw
+
+matrix = np.array(json.loads({json.dumps(ising_matrix_json)}))
+# Precision adjustment
+matrix = kw.ising.adjust_ising_matrix_precision(matrix)
+
+{optimizer_lines}
+
+sol = opt.solve(matrix)
+print(json.dumps({{"solution": sol.tolist() if hasattr(sol, 'tolist') else sol}}))
+"""
     try:
-        result = _run_in_container(solver_code)
+        result = _run_in_container(script)
         return {"success": True, "message": "Ising solved", "output": result.stdout}
     except subprocess.CalledProcessError as e:
         return {"success": False, "message": f"Ising solving failed: {e.stderr}", "output": e.stderr}
 
 
-def container_status() -> dict:
-    """Check Docker container status.
+def _build_optimizer_code(
+    use_cim: bool,
+    task_name: str,
+    sa_params: dict,
+    cim_params: dict,
+) -> str:
+    """Generate Python code to instantiate the optimizer."""
+    if use_cim:
+        kwargs = {"task_name": task_name, "wait": True}
+        for key in ("interval", "project_no", "task_mode", "sample_number"):
+            if key in cim_params:
+                kwargs[key] = cim_params[key]
+        return f"opt = kw.cim.CIMOptimizer(**{json.dumps(kwargs)})"
+    else:
+        kwargs = {}
+        for key in ("initial_temperature", "alpha", "cutoff_temperature",
+                     "iterations_per_t", "size_limit", "process_num"):
+            if key in sa_params:
+                kwargs[key] = sa_params[key]
+        return f"opt = kw.classical.SimulatedAnnealingOptimizer(**{json.dumps(kwargs)})"
 
-    Returns:
-        dict with container state info.
-    """
+
+def container_status() -> dict:
+    """Check Docker container status."""
     try:
         result = _run_docker_compose(["ps"])
         return {"success": True, "message": "Container status retrieved", "output": result.stdout}
@@ -245,22 +263,10 @@ def compile_and_solve(
     dsl: dict = None,
     use_cim: bool = False,
     task_name: str = "kaiwu-task",
+    sa_params: dict = None,
+    cim_params: dict = None,
 ) -> dict:
-    """Compile a problem description to QUBO, then solve with Kaiwu SDK.
-
-    This is the one-call pipeline: problem → qubify → QUBO matrix → kw.solve()
-
-    Args:
-        preset: One of 'tsp', 'maxcut', 'knapsack'. Uses qubify presets.
-        data: JSON-ready data for the preset (distances, adjacency, etc.)
-        dsl: A qubify DSL problem dict (alternative to preset+data).
-        use_cim: If True, use CIM quantum optimizer.
-        task_name: Task name for CIM submission.
-
-    Returns:
-        dict with solution result.
-    """
-    import json
+    """Compile a problem description to QUBO, then solve with Kaiwu SDK."""
     import numpy as np
 
     try:
@@ -271,7 +277,6 @@ def compile_and_solve(
             "message": "qubify is not installed. Run: pip install qubify",
         }
 
-    # ── Step 1: Compile problem → QUBO matrix ─────────────────
     var_map = None
     qubo = None
 
@@ -290,11 +295,10 @@ def compile_and_solve(
             "message": "Provide either preset ('tsp'/'maxcut'/'knapsack') + data, or a dsl dict.",
         }
 
-    # ── Step 2: Feed matrix to Kaiwu SDK solver ────────────────
     matrix_json = json.dumps(qubo.tolist())
-    result = solve_qubo(matrix_json, use_cim=use_cim, task_name=task_name)
+    result = solve_qubo(matrix_json, use_cim=use_cim, task_name=task_name,
+                        sa_params=sa_params, cim_params=cim_params)
 
-    # Attach variable map for decoding
     if result.get("success") and var_map:
         result["var_map"] = var_map
         result["n_vars"] = qubo.shape[0]
@@ -307,17 +311,7 @@ def compile_problem(
     data=None,
     dsl: dict = None,
 ) -> dict:
-    """Compile a problem description to QUBO matrix ONLY (no solving).
-
-    Args:
-        preset: One of 'tsp', 'maxcut', 'knapsack'.
-        data: JSON-ready data for the preset.
-        dsl: A qubify DSL problem dict.
-
-    Returns:
-        dict with 'qubo_matrix' (JSON string) and 'var_map'.
-    """
-    import json
+    """Compile a problem description to QUBO matrix ONLY (no solving)."""
     import numpy as np
 
     try:
@@ -352,3 +346,31 @@ def compile_problem(
         "qubo_matrix": json.dumps(qubo.tolist()),
         "var_map": var_map,
     }
+
+
+def convert_qubo_to_ising(qubo_matrix_json: str) -> dict:
+    """Convert QUBO matrix to Ising matrix via SDK."""
+    script = f"""import json, numpy as np, kaiwu as kw
+matrix = np.array(json.loads({json.dumps(qubo_matrix_json)}))
+ising_mat, bias = kw.conversion.qubo_matrix_to_ising_matrix(matrix)
+print(json.dumps({{"ising_matrix": ising_mat.tolist(), "bias": float(bias)}}))
+"""
+    try:
+        result = _run_in_container(script)
+        return {"success": True, "message": "QUBO converted to Ising", "output": result.stdout}
+    except subprocess.CalledProcessError as e:
+        return {"success": False, "message": f"Conversion failed: {e.stderr}", "output": e.stderr}
+
+
+def convert_ising_to_qubo(ising_matrix_json: str) -> dict:
+    """Convert Ising matrix to QUBO matrix via SDK."""
+    script = f"""import json, numpy as np, kaiwu as kw
+matrix = np.array(json.loads({json.dumps(ising_matrix_json)}))
+qubo_mat, bias = kw.conversion.ising_matrix_to_qubo_matrix(matrix)
+print(json.dumps({{"qubo_matrix": qubo_mat.tolist(), "bias": float(bias)}}))
+"""
+    try:
+        result = _run_in_container(script)
+        return {"success": True, "message": "Ising converted to QUBO", "output": result.stdout}
+    except subprocess.CalledProcessError as e:
+        return {"success": False, "message": f"Conversion failed: {e.stderr}", "output": e.stderr}

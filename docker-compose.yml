@@ -1,5 +1,3 @@
-version: "3.8"
-
 services:
   kaiwu:
     build:
@@ -13,9 +11,15 @@ services:
       - ./user_script:/user_script:rw
       # 映射用户配置文件（只读）
       - ./user_config.yaml:/workspace/user_config.yaml:ro
+      # 持久化 SDK license（--rm 会删除容器，named volume 保留 license 文件）
+      # 注意：路径需与 SDK 的 _LICENSE_FILE 一致，如有差异请调整此挂载路径
+      - kaiwu-license:/root/.kaiwu
     environment:
       - PYTHONUNBUFFERED=1
       - PYTHONPATH=/workspace:/user_script
     stdin_open: true
     tty: true
     command: python3
+
+volumes:
+  kaiwu-license:

@@ -14,6 +14,8 @@ Usage:
   kaiwu-cli solve --knapsack '<json>'    Solve Knapsack (auto-compiled via qubify)
   kaiwu-cli solve --dsl '<json>'         Solve from qubify DSL description
   kaiwu-cli compile --preset tsp --data '<json>'   Compile problem → QUBO matrix
+  kaiwu-cli convert qubo-to-ising '<json>'         Convert QUBO matrix → Ising matrix
+  kaiwu-cli convert ising-to-qubo '<json>'         Convert Ising matrix → QUBO matrix
   kaiwu-cli status                       Show container status
 """
 
@@ -31,7 +33,55 @@ from core import (
     compile_and_solve,
     compile_problem,
     container_status,
+    convert_qubo_to_ising,
+    convert_ising_to_qubo,
 )
+
+_SA_PARAM_NAMES = ("initial_temperature", "alpha", "cutoff_temperature",
+                   "iterations_per_t", "size_limit", "process_num")
+_CIM_PARAM_NAMES = ("interval", "project_no", "task_mode", "sample_number")
+
+
+def _add_sa_args(parser):
+    """Add SA optimizer parameters to a parser."""
+    parser.add_argument("--sa-temp", type=float, help="SA initial temperature (default: 100)")
+    parser.add_argument("--sa-alpha", type=float, help="SA cooling rate (default: 0.99)")
+    parser.add_argument("--sa-cutoff", type=float, help="SA cutoff temperature (default: 0.001)")
+    parser.add_argument("--sa-iters", type=int, help="SA iterations per temperature (default: 10)")
+    parser.add_argument("--sa-size", type=int, help="SA solution count limit (default: 100)")
+    parser.add_argument("--sa-procs", type=int, help="SA parallel processes, -1 for all cores (default: 1)")
+
+
+def _extract_sa_params(args) -> dict:
+    """Extract non-None SA params from parsed args."""
+    mapping = {
+        "sa_temp": "initial_temperature",
+        "sa_alpha": "alpha",
+        "sa_cutoff": "cutoff_temperature",
+        "sa_iters": "iterations_per_t",
+        "sa_size": "size_limit",
+        "sa_procs": "process_num",
+    }
+    return {dst: getattr(args, src) for src, dst in mapping.items() if getattr(args, src) is not None}
+
+
+def _add_cim_args(parser):
+    """Add CIM optimizer parameters to a parser."""
+    parser.add_argument("--cim-interval", type=int, help="CIM polling interval in minutes (default: 1)")
+    parser.add_argument("--cim-project", type=str, help="CIM project number")
+    parser.add_argument("--cim-task-mode", choices=["quota", "sample"], help="CIM task mode (default: quota)")
+    parser.add_argument("--cim-samples", type=int, help="CIM sample count for sample mode (default: 10, max: 2000)")
+
+
+def _extract_cim_params(args) -> dict:
+    """Extract non-None CIM params from parsed args."""
+    mapping = {
+        "cim_interval": "interval",
+        "cim_project": "project_no",
+        "cim_task_mode": "task_mode",
+        "cim_samples": "sample_number",
+    }
+    return {dst: getattr(args, src) for src, dst in mapping.items() if getattr(args, src) is not None}
 
 
 def main():
@@ -68,12 +118,24 @@ def main():
     parser_solve.add_argument("--dsl", help="qubify DSL problem description as JSON (auto-compiled via qubify)")
     parser_solve.add_argument("--cim", action="store_true", help="Use CIM quantum optimizer (default: simulated annealing)")
     parser_solve.add_argument("--task-name", default="kaiwu-task", help="Task name for CIM submission")
+    _add_sa_args(parser_solve)
+    _add_cim_args(parser_solve)
 
     # compile
     parser_compile = subparsers.add_parser("compile", help="Compile problem description to QUBO matrix (via qubify)")
     parser_compile.add_argument("--preset", choices=["tsp", "maxcut", "knapsack"], help="qubify preset to use")
     parser_compile.add_argument("--data", help="JSON data for the preset")
     parser_compile.add_argument("--dsl", help="qubify DSL problem description as JSON")
+
+    # convert
+    parser_convert = subparsers.add_parser("convert", help="Convert between QUBO and Ising matrix formats")
+    convert_sub = parser_convert.add_subparsers(dest="convert_action")
+
+    convert_q2i = convert_sub.add_parser("qubo-to-ising", help="Convert QUBO matrix to Ising matrix")
+    convert_q2i.add_argument("matrix", help="QUBO matrix as JSON string")
+
+    convert_i2q = convert_sub.add_parser("ising-to-qubo", help="Convert Ising matrix to QUBO matrix")
+    convert_i2q.add_argument("matrix", help="Ising matrix as JSON string")
 
     # status
     parser_status = subparsers.add_parser("status", help="Show container status")
@@ -98,36 +160,52 @@ def main():
         elif args.command == "run":
             result = run_script(args.script)
         elif args.command == "solve":
+            sa_params = _extract_sa_params(args)
+            cim_params = _extract_cim_params(args)
             if args.tsp:
                 result = compile_and_solve(
                     preset="tsp", data=args.tsp,
                     use_cim=args.cim, task_name=args.task_name,
+                    sa_params=sa_params, cim_params=cim_params,
                 )
             elif args.maxcut:
                 result = compile_and_solve(
                     preset="maxcut", data=args.maxcut,
                     use_cim=args.cim, task_name=args.task_name,
+                    sa_params=sa_params, cim_params=cim_params,
                 )
             elif args.knapsack:
                 result = compile_and_solve(
                     preset="knapsack", data=args.knapsack,
                     use_cim=args.cim, task_name=args.task_name,
+                    sa_params=sa_params, cim_params=cim_params,
                 )
             elif args.dsl:
                 result = compile_and_solve(
                     dsl=args.dsl,
                     use_cim=args.cim, task_name=args.task_name,
+                    sa_params=sa_params, cim_params=cim_params,
                 )
             elif args.qubo:
-                result = solve_qubo(args.qubo, use_cim=args.cim, task_name=args.task_name)
+                result = solve_qubo(args.qubo, use_cim=args.cim, task_name=args.task_name,
+                                    sa_params=sa_params, cim_params=cim_params)
             elif args.ising:
-                result = solve_ising(args.ising, use_cim=args.cim, task_name=args.task_name)
+                result = solve_ising(args.ising, use_cim=args.cim, task_name=args.task_name,
+                                     sa_params=sa_params, cim_params=cim_params)
             else:
                 print("Error: provide --tsp, --maxcut, --knapsack, --dsl, --qubo, or --ising", file=sys.stderr)
                 parser_solve.print_help()
                 sys.exit(1)
         elif args.command == "compile":
             result = compile_problem(preset=args.preset, data=args.data, dsl=args.dsl)
+        elif args.command == "convert":
+            if args.convert_action == "qubo-to-ising":
+                result = convert_qubo_to_ising(args.matrix)
+            elif args.convert_action == "ising-to-qubo":
+                result = convert_ising_to_qubo(args.matrix)
+            else:
+                parser_convert.print_help()
+                sys.exit(1)
         elif args.command == "status":
             result = container_status()
         else:

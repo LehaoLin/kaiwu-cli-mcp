@@ -17,11 +17,13 @@ from core import (
     compile_and_solve,
     compile_problem,
     container_status,
+    convert_qubo_to_ising,
+    convert_ising_to_qubo,
 )
 
 mcp = FastMCP(
     name="kaiwu-sdk-tools",
-    version="1.0.0",
+    version="1.1.0",
     description="Kaiwu SDK tools for 玻色量子 CIM quantum computer — license management, script execution, QUBO/Ising problem solving",
 )
 
@@ -81,8 +83,13 @@ def kaiwu_solve_qubo(
     qubo_matrix_json: str,
     use_cim: bool = False,
     task_name: str = "kaiwu-task",
+    sa_params: str = "{}",
+    cim_params: str = "{}",
 ) -> str:
     """Solve a QUBO (Quadratic Unconstrained Binary Optimization) problem.
+
+    The matrix is automatically converted to Ising format and precision-adjusted
+    before solving.
 
     Uses SimulatedAnnealingOptimizer by default, or CIMOptimizer (real quantum hardware)
     if use_cim=True and cloud access is available.
@@ -91,8 +98,15 @@ def kaiwu_solve_qubo(
         qubo_matrix_json: JSON-encoded 2D array, e.g. '[[0.89, 0.22], [0.22, 0.23]]'
         use_cim: If True, submit to CIM quantum computer (requires cloud platform access)
         task_name: Task name for CIM submission (default: 'kaiwu-task')
+        sa_params: JSON object with SA parameters: initial_temperature, alpha,
+                   cutoff_temperature, iterations_per_t, size_limit, process_num
+        cim_params: JSON object with CIM parameters: interval, project_no,
+                    task_mode, sample_number
     """
-    result = solve_qubo(qubo_matrix_json, use_cim=use_cim, task_name=task_name)
+    result = solve_qubo(
+        qubo_matrix_json, use_cim=use_cim, task_name=task_name,
+        sa_params=json.loads(sa_params), cim_params=json.loads(cim_params),
+    )
     return json.dumps(result, ensure_ascii=False)
 
 
@@ -101,8 +115,12 @@ def kaiwu_solve_ising(
     ising_matrix_json: str,
     use_cim: bool = False,
     task_name: str = "kaiwu-task",
+    sa_params: str = "{}",
+    cim_params: str = "{}",
 ) -> str:
     """Solve an Ising model problem.
+
+    The matrix is automatically precision-adjusted before solving.
 
     Uses SimulatedAnnealingOptimizer by default, or CIMOptimizer (real quantum hardware)
     if use_cim=True and cloud access is available.
@@ -111,8 +129,15 @@ def kaiwu_solve_ising(
         ising_matrix_json: JSON-encoded 2D array for the Ising matrix
         use_cim: If True, submit to CIM quantum computer (requires cloud platform access)
         task_name: Task name for CIM submission (default: 'kaiwu-task')
+        sa_params: JSON object with SA parameters: initial_temperature, alpha,
+                   cutoff_temperature, iterations_per_t, size_limit, process_num
+        cim_params: JSON object with CIM parameters: interval, project_no,
+                    task_mode, sample_number
     """
-    result = solve_ising(ising_matrix_json, use_cim=use_cim, task_name=task_name)
+    result = solve_ising(
+        ising_matrix_json, use_cim=use_cim, task_name=task_name,
+        sa_params=json.loads(sa_params), cim_params=json.loads(cim_params),
+    )
     return json.dumps(result, ensure_ascii=False)
 
 
@@ -137,6 +162,8 @@ def kaiwu_solve_preset(
     data_json: str,
     use_cim: bool = False,
     task_name: str = "kaiwu-task",
+    sa_params: str = "{}",
+    cim_params: str = "{}",
 ) -> str:
     """Compile a problem via qubify preset and solve with Kaiwu SDK.
 
@@ -150,12 +177,14 @@ def kaiwu_solve_preset(
                    knapsack: {"values":[60,100,120],"weights":[10,20,30],"capacity":50}
         use_cim: If True, submit to CIM quantum computer
         task_name: Task name for CIM submission
+        sa_params: JSON object with SA optimizer parameters
+        cim_params: JSON object with CIM optimizer parameters
     """
     result = compile_and_solve(
         preset=preset, data=data_json,
         use_cim=use_cim, task_name=task_name,
+        sa_params=json.loads(sa_params), cim_params=json.loads(cim_params),
     )
-    # var_map isn't JSON-serializable, strip it from response
     result.pop("var_map", None)
     return json.dumps(result, ensure_ascii=False)
 
@@ -165,6 +194,8 @@ def kaiwu_solve_dsl(
     dsl_json: str,
     use_cim: bool = False,
     task_name: str = "kaiwu-task",
+    sa_params: str = "{}",
+    cim_params: str = "{}",
 ) -> str:
     """Compile a qubify DSL problem description and solve with Kaiwu SDK.
 
@@ -172,10 +203,13 @@ def kaiwu_solve_dsl(
         dsl_json: JSON string of qubify DSL: {"variables":..., "objective":..., "constraints":...}
         use_cim: If True, submit to CIM quantum computer
         task_name: Task name for CIM submission
+        sa_params: JSON object with SA optimizer parameters
+        cim_params: JSON object with CIM optimizer parameters
     """
     result = compile_and_solve(
         dsl=dsl_json,
         use_cim=use_cim, task_name=task_name,
+        sa_params=json.loads(sa_params), cim_params=json.loads(cim_params),
     )
     result.pop("var_map", None)
     return json.dumps(result, ensure_ascii=False)
@@ -203,6 +237,37 @@ def kaiwu_compile_problem(
         dsl=dsl_json or None,
     )
     result.pop("var_map", None)
+    return json.dumps(result, ensure_ascii=False)
+
+
+# ═══════════════════════════════════════════════════════════════
+# QUBO ↔ Ising conversion
+# ═══════════════════════════════════════════════════════════════
+
+
+@mcp.tool()
+def kaiwu_convert_qubo_to_ising(qubo_matrix_json: str) -> str:
+    """Convert a QUBO matrix to Ising matrix format.
+
+    Uses kw.conversion.qubo_matrix_to_ising_matrix from the SDK.
+
+    Args:
+        qubo_matrix_json: JSON-encoded 2D array representing the QUBO matrix
+    """
+    result = convert_qubo_to_ising(qubo_matrix_json)
+    return json.dumps(result, ensure_ascii=False)
+
+
+@mcp.tool()
+def kaiwu_convert_ising_to_qubo(ising_matrix_json: str) -> str:
+    """Convert an Ising matrix to QUBO matrix format.
+
+    Uses kw.conversion.ising_matrix_to_qubo_matrix from the SDK.
+
+    Args:
+        ising_matrix_json: JSON-encoded 2D array representing the Ising matrix
+    """
+    result = convert_ising_to_qubo(ising_matrix_json)
     return json.dumps(result, ensure_ascii=False)
 
 

@@ -56,6 +56,7 @@
 │  • Kaiwu SDK v1.3.1 (已安装)                   │
 │  • /user_script/ (映射自宿主机)               │
 │  • /mnt/script/  (外部脚本自动挂载)            │
+│  • named volume: kaiwu-license (持久化)       │
 │                                              │
 │  用户脚本在此环境中运行，调用 Kaiwu SDK        │
 │  访问玻色量子 CIM 相干光量子计算机             │
@@ -129,6 +130,8 @@ python cli.py license init --user-id "your_id" --sdk-code "your_code"
 python cli.py license check
 ```
 
+> License 通过 Docker named volume (`kaiwu-license`) 持久化，`docker compose run --rm` 不会丢失。
+
 ### 6. 运行脚本
 
 在**任意位置**编写你的 Python 脚本（使用 Kaiwu SDK），CLI 会自动将其挂载到 Docker 容器中执行：
@@ -161,7 +164,33 @@ python cli.py run ~/Desktop/experiment.py
 | `python cli.py solve --knapsack '<json>'` | **自动编译 Knapsack → QUBO → 求解** (via qubify) |
 | `python cli.py solve --dsl '<json>'` | **自动编译自定义问题 → QUBO → 求解** (via qubify) |
 | `python cli.py compile --preset tsp --data '<json>'` | 编译问题 → QUBO 矩阵（不求解） |
+| `python cli.py convert qubo-to-ising '<json>'` | QUBO 矩阵 → Ising 矩阵 |
+| `python cli.py convert ising-to-qubo '<json>'` | Ising 矩阵 → QUBO 矩阵 |
 | `python cli.py status` | 查看容器状态 |
+
+### 求解器参数
+
+`solve` 命令支持细粒度的求解器参数调整：
+
+#### SA (模拟退火) 参数
+
+| 参数 | 说明 | 默认值 |
+|------|------|--------|
+| `--sa-temp` | 初始温度 | 100 |
+| `--sa-alpha` | 降温系数 | 0.99 |
+| `--sa-cutoff` | 截止温度 | 0.001 |
+| `--sa-iters` | 每温度迭代次数 | 10 |
+| `--sa-size` | 输出解的个数 | 100 |
+| `--sa-procs` | 并行进程数 (-1 为全部核心) | 1 |
+
+#### CIM (量子真机) 参数
+
+| 参数 | 说明 | 默认值 |
+|------|------|--------|
+| `--cim-interval` | 轮询间隔（分钟） | 1 |
+| `--cim-project` | 项目编号 | — |
+| `--cim-task-mode` | 计算模式 (quota/sample) | quota |
+| `--cim-samples` | 采样次数 (sample 模式) | 10 |
 
 ### 示例
 
@@ -176,13 +205,19 @@ python cli.py license init
 python cli.py run my_optimization.py
 python cli.py run ~/projects/quantum/experiment.py
 
-# 直接求解 QUBO
+# 直接求解 QUBO（自动转为 Ising + 精度调整）
 python cli.py solve --qubo '[[0.89, 0.22, 0.198], [0.22, 0.23, 0.197], [0.198, 0.197, 0.198]]'
 
 # 使用 CIM 真机求解
 python cli.py solve --ising '[[1, -1], [-1, 1]]' --cim --task-name "my-experiment"
 
-# 自动编译并求解 (via qubify — 无需手推 QUBO 矩阵)
+# 带参数的 SA 求解
+python cli.py solve --qubo '[[1, 2], [0, 3]]' --sa-temp 1000 --sa-alpha 0.995 --sa-size 50
+
+# 使用 CIM sample 模式
+python cli.py solve --qubo '[[1, 0], [0, 1]]' --cim --cim-task-mode sample --cim-samples 100
+
+# 自动编译并求解 (via qubify)
 python cli.py solve --tsp '[[0,10,15,20],[10,0,35,25],[15,35,0,30],[20,25,30,0]]'
 python cli.py solve --maxcut '[[0,1,0],[1,0,1],[0,1,0]]'
 python cli.py solve --knapsack '{"values":[60,100,120],"weights":[10,20,30],"capacity":50}'
@@ -192,6 +227,10 @@ python cli.py solve --dsl '{"variables":{"x":("binary",(3,))},"objective":[{"coe
 
 # 只编译不求解（输出 QUBO 矩阵 JSON）
 python cli.py compile --preset maxcut --data '[[0,1,0],[1,0,1],[0,1,0]]'
+
+# QUBO ↔ Ising 矩阵转换
+python cli.py convert qubo-to-ising '[[1, 2], [0, 3]]'
+python cli.py convert ising-to-qubo '[[0, 1], [1, 0]]'
 ```
 
 ### 自动编译求解 (via qubify)
@@ -226,6 +265,18 @@ python cli.py compile --preset maxcut --data '[[0,1,0],[1,0,1],[0,1,0]]'
 ```
 
 编译和求解在**宿主机**完成（qubify 不需要装在 Docker 里），只把最终矩阵传入 Docker 中调用 Kaiwu SDK。
+
+### 求解流程说明
+
+`solve --qubo` 和 `solve --ising` 的内部处理流程：
+
+```
+--qubo 输入 → QUBO→Ising 转换 (kw.conversion) → 精度调整 (kw.ising) → 优化器求解 → 输出
+--ising 输入 → 精度调整 (kw.ising) → 优化器求解 → 输出
+```
+
+QUBO 矩阵会自动通过 `kw.conversion.qubo_matrix_to_ising_matrix()` 转为 Ising 格式，
+并通过 `kw.ising.adjust_ising_matrix_precision()` 调整精度，确保与 CIM 硬件兼容。
 
 ### 编写用户脚本
 
@@ -355,12 +406,16 @@ OpenCode TUI 中使用 `/mcps` 管理 MCP 服务器。
 | `kaiwu_init_license` | 生成 SDK License（可指定 user_id/sdk_code） |
 | `kaiwu_check_license` | 检查 License 状态 |
 | `kaiwu_run_script` | 运行 Python 脚本（支持宿主机任意路径，自动挂载到 Docker） |
-| `kaiwu_solve_qubo` | 求解原始 QUBO 矩阵 |
-| `kaiwu_solve_ising` | 求解原始 Ising 矩阵 |
+| `kaiwu_solve_qubo` | 求解 QUBO 矩阵（自动转 Ising + 精度调整） |
+| `kaiwu_solve_ising` | 求解 Ising 矩阵（自动精度调整） |
 | `kaiwu_solve_preset` | **自动编译+求解 (tsp/maxcut/knapsack)** via qubify |
 | `kaiwu_solve_dsl` | **自动编译+求解 (自定义 DSL)** via qubify |
 | `kaiwu_compile_problem` | 编译问题 → QUBO 矩阵（不求解）via qubify |
+| `kaiwu_convert_qubo_to_ising` | QUBO 矩阵 → Ising 矩阵 |
+| `kaiwu_convert_ising_to_qubo` | Ising 矩阵 → QUBO 矩阵 |
 | `kaiwu_container_status` | 查看 Docker 容器状态 |
+
+所有求解工具支持 `sa_params` 和 `cim_params` 参数（JSON 格式）来调整优化器行为。
 
 ---
 
@@ -372,12 +427,13 @@ kaiwu-cli-mcp/
 ├── mcp_server.py       # MCP Server 入口（FastMCP）
 ├── core.py             # 纯业务逻辑层
 ├── config.py           # 共享配置读取
+├── converters.py       # qubify 转换器封装
 ├── user_config.yaml    # 用户凭证配置 ★编辑此文件★
 ├── Dockerfile          # Kaiwu SDK Docker 环境
-├── docker-compose.yml  # Docker 编排（映射 user_script/）
+├── docker-compose.yml  # Docker 编排（映射 user_script/ + license 持久化）
 ├── requirements.txt    # Python 依赖
 ├── README.md           # 本文件
-├── sdk/                # 放置 Kaiwu SDK .whl 文件
+├── sdk/                # 放置 Kaiwu SDK .whl/.zip 文件
 │   └── .gitkeep
 └── user_script/        # 用户脚本目录 ★在此编写脚本★
     └── example_tsp.py  # TSP 示例脚本
@@ -397,6 +453,8 @@ kaiwu-cli-mcp/
 python cli.py license check
 ```
 
+License 通过 Docker named volume 持久化，不会因为容器重启而丢失。
+
 ### Q: 如何直接进入 Docker 容器调试？
 
 ```bash
@@ -410,9 +468,15 @@ docker compose run --rm kaiwu bash
 - **SimulatedAnnealingOptimizer** (`kw.classical`) — 经典模拟退火，无需联网
 - **CIMOptimizer** (`kw.cim`) — 相干光量子计算机真机，需要云平台配额
 
+通过 CLI 参数 `--sa-*` 和 `--cim-*` 可调整求解器参数。
+
 ### Q: Python 版本要求？
 
 Kaiwu SDK v1.3.1 仅支持 **Python 3.10**（不区分小版本）。Docker 镜像已使用 `python:3.10-slim`。
+
+### Q: License 持久化怎么实现的？
+
+通过 Docker Compose 的 named volume `kaiwu-license`，挂载到容器内 SDK 的 license 目录。即使 `docker compose run --rm` 删除了容器，license 文件仍然保留在 named volume 中。如果需要清除 license，运行 `docker volume rm kaiwu-cli-mcp_kaiwu-license`。
 
 ---
 
@@ -420,8 +484,8 @@ Kaiwu SDK v1.3.1 仅支持 **Python 3.10**（不区分小版本）。Docker 镜�
 
 - [Kaiwu SDK 官方文档](https://kaiwu-sdk-docs.qboson.com/zh/latest/index.html)
 - [玻色量子平台](https://platform.qboson.com/)
-- [Kaiwu SDK 模块手册](https://kaiwu-sdk-docs.qboson.com/zh/latest/index.html) — kaiwu.cim / kaiwu.qubo / kaiwu.license 等
-- [Kaiwu SDK 安装说明](https://kaiwu-sdk-docs.qboson.com/zh/latest/source/getting_started/installation.html)
+- [Kaiwu SDK 模块手册](https://kaiwu-sdk-docs.qboson.com/zh/latest/source/modules/index.html) — kaiwu.cim / kaiwu.qubo / kaiwu.license / kaiwu.conversion 等
+- [Kaiwu SDK 安装说明](https://kaiwu-sdk-docs.qboson.com/zh/latest/source/getting_started/sdk_installation_instructions.html)
 - [Kaiwu SDK QUBO 建模教程 (TSP)](https://kaiwu-sdk-docs.qboson.com/zh/latest/source/getting_started/tutorial_tsp.html)
 
 ---
