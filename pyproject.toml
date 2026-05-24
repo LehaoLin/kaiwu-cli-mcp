@@ -1,0 +1,29 @@
+[build-system]
+requires = ["setuptools>=68.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "kaiwu-cli-mcp"
+version = "1.1.0"
+description = "Kaiwu SDK CLI & MCP 双模工具 — 玻色量子 CIM 相干光量子计算机 Python SDK 封装"
+readme = "README.md"
+requires-python = ">=3.10"
+license = {text = "MIT"}
+keywords = ["kaiwu", "qboson", "cim", "qubo", "ising", "quantum", "optimization", "mcp"]
+authors = [{name = "LehaoLin"}]
+
+dependencies = [
+    "fastmcp>=0.3.0",
+    "numpy>=1.20.0",
+    "pyyaml>=6.0",
+    "qubify>=0.1.0",
+]
+
+[project.scripts]
+kaiwu-cli = "cli:main"
+
+[project.optional-dependencies]
+dev = ["pytest>=7.0"]
+
+[tool.setuptools]
+py-modules = ["cli", "core", "config", "converters", "mcp_server"]

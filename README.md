@@ -1,6 +1,6 @@
 # kaiwu-cli-mcp
 
-**Kaiwu SDK CLI & MCP 双模工具** — 玻色量子 CIM 相干光量子计算机 Python SDK 的 Docker 封装工具，支持命令行（CLI）和 AI Agent（MCP）两种调用方式。
+**Kaiwu SDK CLI & MCP 双模工具** — 玻色量子 CIM 相干光量子计算机 Python SDK 的 Docker 封装工具，支持命令行（CLI）、Python Library（import）和 AI Agent（MCP）三种调用方式。
 
 > 📚 **Kaiwu SDK 官方文档**: [https://kaiwu-sdk-docs.qboson.com/zh/latest/index.html](https://kaiwu-sdk-docs.qboson.com/zh/latest/index.html)
 
@@ -18,6 +18,7 @@
   - [5. 生成 License](#5-生成-license)
   - [6. 运行脚本](#6-运行脚本)
 - [CLI 使用指南](#cli-使用指南)
+- [Python Library 使用指南](#python-library-使用指南)
 - [MCP Server 使用指南](#mcp-server-使用指南)
 - [项目结构](#项目结构)
 - [常见问题](#常见问题)
@@ -31,11 +32,11 @@
 │                 宿主机 (Host)                │
 │                                             │
 │  ┌──────────┐  ┌───────────────┐            │
-│  │  CLI     │  │  MCP Server   │            │
-│  │ (cli.py) │  │ (mcp_server)  │            │
-│  └────┬─────┘  └───────┬───────┘            │
-│       │                │                     │
-│       └───────┬────────┘                     │
+│  │  CLI     │  │  Python   │  │  MCP Server   │            │
+│  │ (cli.py) │  │  Library  │  │ (mcp_server)  │            │
+│  └────┬─────┘  │(import)   │  └───────┬───────┘            │
+│       │        └─────┬─────┘          │                     │
+│       └──────────────┼────────────────┘                     │
 │               │                              │
 │        ┌──────▼──────┐                       │
 │        │   core.py   │  纯业务逻辑层          │
@@ -63,7 +64,7 @@
 └──────────────────────────────────────────────┘
 ```
 
-**核心原则**：一个核心逻辑层（`core.py`），两个薄接口层（`cli.py` + `mcp_server.py`）。CLI 给人类用，MCP 给 AI Agent 用，共享同一套业务逻辑。
+**核心原则**：一个核心逻辑层（`core.py`），三个薄接口层（`cli.py` + Python import + `mcp_server.py`）。CLI 给人类用，Python Library 给程序调用，MCP 给 AI Agent 用，共享同一套业务逻辑。
 
 ---
 
@@ -306,6 +307,130 @@ print(f"Solution: {solution}")
 
 ---
 
+## Python Library 使用指南
+
+`kaiwu-cli-mcp` 支持作为 Python 库直接在代码中 import 使用。核心模块 `core.py` 的所有函数返回结构化的 dict，适合嵌入到其他程序中。
+
+### 安装方式
+
+**方式一：pip install（推荐）**
+
+```bash
+# 从本地源码安装（可编辑模式）
+cd /path/to/kaiwu-cli-mcp
+pip install -e .
+
+# 之后可从任意目录 import
+python -c "import kaiwu_cli_mcp; print(kaiwu_cli_mcp.__doc__)"
+```
+
+安装后也可以直接使用命令行入口：
+
+```bash
+kaiwu-cli build
+kaiwu-cli solve --qubo '[[1, 0], [0, 1]]'
+```
+
+**方式二：手动添加 path**
+
+```bash
+cp -r kaiwu-cli-mcp /your/project/vendor/
+```
+
+```python
+import sys
+sys.path.insert(0, "/your/project/vendor/kaiwu-cli-mcp")
+from core import solve_qubo, compile_and_solve
+```
+
+### 使用示例
+
+```python
+from core import build_image, init_license, check_license, run_script
+from core import solve_qubo, solve_ising, compile_and_solve, compile_problem
+from core import container_status, convert_qubo_to_ising, convert_ising_to_qubo
+
+# 构建 Docker 镜像
+result = build_image()
+print(result)  # {"success": True, "message": "Docker image built successfully", ...}
+
+# 生成 license
+result = init_license("your_user_id", "your_sdk_code")
+
+# 直接求解 QUBO 矩阵
+result = solve_qubo('[[0.89, 0.22], [0.22, 0.23]]')
+if result["success"]:
+    print(result["output"])  # 求解结果
+
+# 使用 CIM 量子真机
+result = solve_ising(
+    '[[1, -1], [-1, 1]]',
+    use_cim=True,
+    task_name="my-experiment",
+)
+
+# 自动编译并求解 TSP
+result = compile_and_solve(
+    preset="tsp",
+    data='[[0,10,15,20],[10,0,35,25],[15,35,0,30],[20,25,30,0]]',
+)
+
+# 自动编译并求解 Knapsack
+result = compile_and_solve(
+    preset="knapsack",
+    data='{"values":[60,100,120],"weights":[10,20,30],"capacity":50}',
+)
+
+# 指定 SA 求解器参数
+result = solve_qubo(
+    '[[1, 0], [0, 1]]',
+    sa_params={"initial_temperature": 1000, "alpha": 0.995, "size_limit": 50},
+)
+
+# 编译问题（不求解），输出 QUBO 矩阵
+result = compile_problem(preset="maxcut", data='[[0,1,0],[1,0,1],[0,1,0]]')
+if result["success"]:
+    print(result["qubo_matrix"])  # JSON 格式的 QUBO 矩阵
+    print(result["var_map"])      # 变量映射
+
+# 矩阵转换
+result = convert_qubo_to_ising('[[1, 2], [0, 3]]')
+# result["output"] 包含 {"ising_matrix": ..., "bias": ...}
+
+# 检查容器状态
+result = container_status()
+```
+
+### 函数返回值约定
+
+所有函数返回统一的 dict 结构：
+
+```python
+# 成功
+{"success": True, "message": "...", "output": "..."}
+
+# 失败
+{"success": False, "message": "...", "output": "..."}
+```
+
+### Docker 依赖说明
+
+| 函数 | 需要 Docker | 说明 |
+|------|------------|------|
+| `build_image` | 是 | 构建 Kaiwu SDK 镜像 |
+| `init_license` | 是 | 需要容器内执行 Kaiwu SDK |
+| `check_license` | 是 | 检查容器内 license 文件 |
+| `run_script` | 是 | 在容器内执行用户脚本 |
+| `solve_qubo` | 是 | 在容器内调用 Kaiwu SDK 求解 |
+| `solve_ising` | 是 | 在容器内调用 Kaiwu SDK 求解 |
+| `compile_and_solve` | 是 | 宿主机编译 QUBO → 容器内求解 |
+| `compile_problem` | 否 | 纯 Python，宿主机编译 QUBO（需 `qubify`） |
+| `convert_qubo_to_ising` | 是 | 需要容器内 Kaiwu SDK 转换 |
+| `convert_ising_to_qubo` | 是 | 需要容器内 Kaiwu SDK 转换 |
+| `container_status` | 是 | docker compose ps |
+
+---
+
 ## MCP Server 使用指南
 
 MCP (Model Context Protocol) 模式允许 AI Agent 直接调用 Kaiwu SDK。
@@ -425,9 +550,11 @@ OpenCode TUI 中使用 `/mcps` 管理 MCP 服务器。
 kaiwu-cli-mcp/
 ├── cli.py              # CLI 入口（argparse）
 ├── mcp_server.py       # MCP Server 入口（FastMCP）
-├── core.py             # 纯业务逻辑层
+├── core.py             # 纯业务逻辑层（可 import 调用）
 ├── config.py           # 共享配置读取
 ├── converters.py       # qubify 转换器封装
+├── __init__.py          # Python package 入口
+├── pyproject.toml      # Python package 配置
 ├── user_config.yaml    # 用户凭证配置 ★编辑此文件★
 ├── Dockerfile          # Kaiwu SDK Docker 环境
 ├── docker-compose.yml  # Docker 编排（映射 user_script/ + license 持久化）
