@@ -43,27 +43,23 @@ def maxcut_to_qubo(adjacency):
     return maxcut(A)
 
 
-def knapsack_to_qubo(values, weights, capacity, slack_bits=4):
+def knapsack_to_qubo(data):
     """Convert knapsack instance to QUBO matrix.
 
     Args:
-        values: list of item values
-        weights: list of item weights
-        capacity: int, max total weight
-        slack_bits: number of slack binary variables (default 4)
+        data: dict or JSON string with keys: values, weights, capacity, slack_bits (optional).
 
     Returns:
         (qubo_matrix, var_map)
     """
     from qubify.presets import knapsack
 
-    if isinstance(values, str):
-        data = json.loads(values)
-        return knapsack(
-            data["values"], data["weights"], data["capacity"],
-            slack_bits=data.get("slack_bits", 4),
-        )
-    return knapsack(values, weights, capacity, slack_bits)
+    if isinstance(data, str):
+        data = json.loads(data)
+    return knapsack(
+        data["values"], data["weights"], data["capacity"],
+        slack_bits=data.get("slack_bits", 4),
+    )
 
 
 def dsl_to_qubo(problem_desc):

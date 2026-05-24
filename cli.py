@@ -37,10 +37,6 @@ from core import (
     convert_ising_to_qubo,
 )
 
-_SA_PARAM_NAMES = ("initial_temperature", "alpha", "cutoff_temperature",
-                   "iterations_per_t", "size_limit", "process_num")
-_CIM_PARAM_NAMES = ("interval", "project_no", "task_mode", "sample_number")
-
 
 def _add_sa_args(parser):
     """Add SA optimizer parameters to a parser."""

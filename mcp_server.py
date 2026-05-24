@@ -29,40 +29,37 @@ mcp = FastMCP(
 
 
 @mcp.tool()
-def kaiwu_build_image() -> str:
+def kaiwu_build_image() -> dict:
     """Build the Kaiwu SDK Docker image.
 
     Must be run once before using other tools. This builds a Docker image
     with Python 3.10 and the Kaiwu SDK installed.
     """
-    result = build_image()
-    return json.dumps(result, ensure_ascii=False)
+    return build_image()
 
 
 @mcp.tool()
-def kaiwu_init_license(user_id: str = "", sdk_code: str = "") -> str:
+def kaiwu_init_license(user_id: str = "", sdk_code: str = "") -> dict:
     """Generate Kaiwu SDK license inside the Docker container.
 
     Args:
         user_id: 用户ID from https://platform.qboson.com/ (leave empty to use user_config.yaml)
         sdk_code: SDK授权码 from https://platform.qboson.com/ (leave empty to use user_config.yaml)
     """
-    result = init_license(user_id=user_id or None, sdk_code=sdk_code or None)
-    return json.dumps(result, ensure_ascii=False)
+    return init_license(user_id=user_id or None, sdk_code=sdk_code or None)
 
 
 @mcp.tool()
-def kaiwu_check_license() -> str:
+def kaiwu_check_license() -> dict:
     """Check if the Kaiwu SDK license is valid.
 
     Returns license file status and path.
     """
-    result = check_license()
-    return json.dumps(result, ensure_ascii=False)
+    return check_license()
 
 
 @mcp.tool()
-def kaiwu_run_script(script_path: str) -> str:
+def kaiwu_run_script(script_path: str) -> dict:
     """Run a Python script inside the Kaiwu SDK Docker container.
 
     Supports two modes:
@@ -74,8 +71,7 @@ def kaiwu_run_script(script_path: str) -> str:
                      under user_script/ first. Absolute paths work from
                      anywhere on the host.
     """
-    result = run_script(script_path)
-    return json.dumps(result, ensure_ascii=False)
+    return run_script(script_path)
 
 
 @mcp.tool()
@@ -85,7 +81,7 @@ def kaiwu_solve_qubo(
     task_name: str = "kaiwu-task",
     sa_params: str = "{}",
     cim_params: str = "{}",
-) -> str:
+) -> dict:
     """Solve a QUBO (Quadratic Unconstrained Binary Optimization) problem.
 
     The matrix is automatically converted to Ising format and precision-adjusted
@@ -103,11 +99,10 @@ def kaiwu_solve_qubo(
         cim_params: JSON object with CIM parameters: interval, project_no,
                     task_mode, sample_number
     """
-    result = solve_qubo(
+    return solve_qubo(
         qubo_matrix_json, use_cim=use_cim, task_name=task_name,
         sa_params=json.loads(sa_params), cim_params=json.loads(cim_params),
     )
-    return json.dumps(result, ensure_ascii=False)
 
 
 @mcp.tool()
@@ -117,7 +112,7 @@ def kaiwu_solve_ising(
     task_name: str = "kaiwu-task",
     sa_params: str = "{}",
     cim_params: str = "{}",
-) -> str:
+) -> dict:
     """Solve an Ising model problem.
 
     The matrix is automatically precision-adjusted before solving.
@@ -134,21 +129,19 @@ def kaiwu_solve_ising(
         cim_params: JSON object with CIM parameters: interval, project_no,
                     task_mode, sample_number
     """
-    result = solve_ising(
+    return solve_ising(
         ising_matrix_json, use_cim=use_cim, task_name=task_name,
         sa_params=json.loads(sa_params), cim_params=json.loads(cim_params),
     )
-    return json.dumps(result, ensure_ascii=False)
 
 
 @mcp.tool()
-def kaiwu_container_status() -> str:
+def kaiwu_container_status() -> dict:
     """Check the Kaiwu SDK Docker container status.
 
     Returns container running state, ports, and health info.
     """
-    result = container_status()
-    return json.dumps(result, ensure_ascii=False)
+    return container_status()
 
 
 # ═══════════════════════════════════════════════════════════════
@@ -164,7 +157,7 @@ def kaiwu_solve_preset(
     task_name: str = "kaiwu-task",
     sa_params: str = "{}",
     cim_params: str = "{}",
-) -> str:
+) -> dict:
     """Compile a problem via qubify preset and solve with Kaiwu SDK.
 
     One-call pipeline: problem data → qubify compiler → QUBO matrix → solution.
@@ -186,7 +179,7 @@ def kaiwu_solve_preset(
         sa_params=json.loads(sa_params), cim_params=json.loads(cim_params),
     )
     result.pop("var_map", None)
-    return json.dumps(result, ensure_ascii=False)
+    return result
 
 
 @mcp.tool()
@@ -196,7 +189,7 @@ def kaiwu_solve_dsl(
     task_name: str = "kaiwu-task",
     sa_params: str = "{}",
     cim_params: str = "{}",
-) -> str:
+) -> dict:
     """Compile a qubify DSL problem description and solve with Kaiwu SDK.
 
     Args:
@@ -212,7 +205,7 @@ def kaiwu_solve_dsl(
         sa_params=json.loads(sa_params), cim_params=json.loads(cim_params),
     )
     result.pop("var_map", None)
-    return json.dumps(result, ensure_ascii=False)
+    return result
 
 
 @mcp.tool()
@@ -220,7 +213,7 @@ def kaiwu_compile_problem(
     preset: str = "",
     data_json: str = "",
     dsl_json: str = "",
-) -> str:
+) -> dict:
     """Compile a problem description to QUBO matrix (no solving).
 
     Use this to inspect the QUBO matrix before solving, or to feed it
@@ -237,7 +230,7 @@ def kaiwu_compile_problem(
         dsl=dsl_json or None,
     )
     result.pop("var_map", None)
-    return json.dumps(result, ensure_ascii=False)
+    return result
 
 
 # ═══════════════════════════════════════════════════════════════
@@ -246,7 +239,7 @@ def kaiwu_compile_problem(
 
 
 @mcp.tool()
-def kaiwu_convert_qubo_to_ising(qubo_matrix_json: str) -> str:
+def kaiwu_convert_qubo_to_ising(qubo_matrix_json: str) -> dict:
     """Convert a QUBO matrix to Ising matrix format.
 
     Uses kw.conversion.qubo_matrix_to_ising_matrix from the SDK.
@@ -254,12 +247,11 @@ def kaiwu_convert_qubo_to_ising(qubo_matrix_json: str) -> str:
     Args:
         qubo_matrix_json: JSON-encoded 2D array representing the QUBO matrix
     """
-    result = convert_qubo_to_ising(qubo_matrix_json)
-    return json.dumps(result, ensure_ascii=False)
+    return convert_qubo_to_ising(qubo_matrix_json)
 
 
 @mcp.tool()
-def kaiwu_convert_ising_to_qubo(ising_matrix_json: str) -> str:
+def kaiwu_convert_ising_to_qubo(ising_matrix_json: str) -> dict:
     """Convert an Ising matrix to QUBO matrix format.
 
     Uses kw.conversion.ising_matrix_to_qubo_matrix from the SDK.
@@ -267,8 +259,7 @@ def kaiwu_convert_ising_to_qubo(ising_matrix_json: str) -> str:
     Args:
         ising_matrix_json: JSON-encoded 2D array representing the Ising matrix
     """
-    result = convert_ising_to_qubo(ising_matrix_json)
-    return json.dumps(result, ensure_ascii=False)
+    return convert_ising_to_qubo(ising_matrix_json)
 
 
 if __name__ == "__main__":

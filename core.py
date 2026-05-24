@@ -32,7 +32,7 @@ def _run_in_container(python_code: str) -> subprocess.CompletedProcess:
 
     fd, tmp_path = tempfile.mkstemp(suffix=".py", dir=_TMP_DIR)
     try:
-        with os.fdopen(fd, "w") as f:
+        with open(fd, "w") as f:
             f.write(python_code)
         container_path = f"/user_script/.tmp/{Path(tmp_path).name}"
         return _run_docker_compose([
@@ -257,28 +257,12 @@ def container_status() -> dict:
 # ═══════════════════════════════════════════════════════════════════
 
 
-def compile_and_solve(
-    preset: str = None,
-    data=None,
-    dsl: dict = None,
-    use_cim: bool = False,
-    task_name: str = "kaiwu-task",
-    sa_params: dict = None,
-    cim_params: dict = None,
-) -> dict:
-    """Compile a problem description to QUBO, then solve with Kaiwu SDK."""
-    import numpy as np
-
+def _compile_to_qubo(preset=None, data=None, dsl=None) -> dict:
+    """Compile problem description to QUBO. Returns dict with qubo, var_map or error."""
     try:
         from converters import tsp_to_qubo, maxcut_to_qubo, knapsack_to_qubo, dsl_to_qubo
     except ImportError:
-        return {
-            "success": False,
-            "message": "qubify is not installed. Run: pip install qubify",
-        }
-
-    var_map = None
-    qubo = None
+        return {"error": "qubify is not installed. Run: pip install qubify"}
 
     if dsl:
         problem = json.loads(dsl) if isinstance(dsl, str) else dsl
@@ -290,10 +274,27 @@ def compile_and_solve(
     elif preset == "knapsack":
         qubo, var_map = knapsack_to_qubo(data)
     else:
-        return {
-            "success": False,
-            "message": "Provide either preset ('tsp'/'maxcut'/'knapsack') + data, or a dsl dict.",
-        }
+        return {"error": "Provide either preset ('tsp'/'maxcut'/'knapsack') + data, or a dsl dict."}
+
+    return {"qubo": qubo, "var_map": var_map}
+
+
+def compile_and_solve(
+    preset: str = None,
+    data=None,
+    dsl: dict = None,
+    use_cim: bool = False,
+    task_name: str = "kaiwu-task",
+    sa_params: dict = None,
+    cim_params: dict = None,
+) -> dict:
+    """Compile a problem description to QUBO, then solve with Kaiwu SDK."""
+    compiled = _compile_to_qubo(preset=preset, data=data, dsl=dsl)
+    if "error" in compiled:
+        return {"success": False, "message": compiled["error"]}
+
+    qubo = compiled["qubo"]
+    var_map = compiled["var_map"]
 
     matrix_json = json.dumps(qubo.tolist())
     result = solve_qubo(matrix_json, use_cim=use_cim, task_name=task_name,
@@ -312,33 +313,12 @@ def compile_problem(
     dsl: dict = None,
 ) -> dict:
     """Compile a problem description to QUBO matrix ONLY (no solving)."""
-    import numpy as np
+    compiled = _compile_to_qubo(preset=preset, data=data, dsl=dsl)
+    if "error" in compiled:
+        return {"success": False, "message": compiled["error"]}
 
-    try:
-        from converters import tsp_to_qubo, maxcut_to_qubo, knapsack_to_qubo, dsl_to_qubo
-    except ImportError:
-        return {
-            "success": False,
-            "message": "qubify is not installed. Run: pip install qubify",
-        }
-
-    qubo = None
-    var_map = None
-
-    if dsl:
-        problem = json.loads(dsl) if isinstance(dsl, str) else dsl
-        qubo, var_map = dsl_to_qubo(problem)
-    elif preset == "tsp":
-        qubo, var_map = tsp_to_qubo(data)
-    elif preset == "maxcut":
-        qubo, var_map = maxcut_to_qubo(data)
-    elif preset == "knapsack":
-        qubo, var_map = knapsack_to_qubo(data)
-    else:
-        return {
-            "success": False,
-            "message": "Provide either preset ('tsp'/'maxcut'/'knapsack') + data, or a dsl dict.",
-        }
+    qubo = compiled["qubo"]
+    var_map = compiled["var_map"]
 
     return {
         "success": True,
